@@ -11,6 +11,7 @@ Chalane ke liye:
     python eth_option_alert.py
 """
 
+import os
 import time
 import datetime as dt
 import requests
@@ -25,8 +26,12 @@ CHECK_EVERY    = 15        # har kitne second me check kare
 ONLY_NEAREST_EXPIRY = True # True = sirf sabse nazdeek wali expiry (daily) ke options
 
 # Mobile par alert chahiye to Telegram bot banao (@BotFather) aur yahan daalo, warna khaali chhod do
-TELEGRAM_BOT_TOKEN = ""
-TELEGRAM_CHAT_ID   = ""
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Cloud (GitHub Actions) par chalne ke liye - computer par kuch badalne ki zarurat nahi
+CLOUD_MODE     = os.getenv("CLOUD_MODE", "") == "1"   # 1 = popup/beep nahi, sirf Telegram
+MAX_RUN_MIN    = int(os.getenv("MAX_RUN_MIN", "0"))     # itne minute baad script khud band (0 = kabhi nahi)
 # =====================================================================
 
 API = "https://api.india.delta.exchange/v2/tickers"
@@ -154,8 +159,9 @@ def send_alert(hits, spot):
     msg = "\n".join(lines)
     print("\n" + "!" * 50 + "\n" + msg + "\n" + "!" * 50)
     telegram(msg)
-    beep()
-    popup(msg)
+    if not CLOUD_MODE:
+        beep()
+        popup(msg)
 
 
 # ------------------------------ main ---------------------------------
@@ -164,9 +170,18 @@ def main():
           f"time {ALERT_START}-{ALERT_END} IST, price = {PRICE_TYPE}\n")
     alerted = set()          # ek option ka alert ek hi baar (jab tak price wapas upar na jaaye)
     last_day = None
+    started = time.time()
+    if CLOUD_MODE:
+        telegram(f"✅ ETH alert cloud par chalu ({now_ist():%d-%m %H:%M} IST). Range ±{RANGE_POINTS}, limit ${PRICE_LIMIT}")
 
     while True:
         t = now_ist()
+        if CLOUD_MODE and not in_alert_window(t):
+            print(f"[{t:%H:%M:%S}] Alert time ({ALERT_START}-{ALERT_END}) khatam, cloud run band.")
+            break
+        if MAX_RUN_MIN and time.time() - started > MAX_RUN_MIN * 60:
+            print("MAX_RUN_MIN poora, band kar raha hoon (agla run aage chalayega).")
+            break
         if t.date() != last_day:
             alerted.clear()
             last_day = t.date()
@@ -195,5 +210,19 @@ def main():
         time.sleep(CHECK_EVERY)
 
 
+def test_once():
+    """Ek baar price laake Telegram par bhejo - setup check karne ke liye."""
+    spot, rows = filter_options(fetch_options())
+    lines = [f"🧪 Test OK - ETH = ${spot:,.2f}"]
+    lines += [f"{r['type']} {r['strike']:.0f} -> ${r['price']:.2f}" for r in rows if r["price"] is not None]
+    msg = "\n".join(lines)
+    print(msg)
+    telegram(msg)
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--test" in sys.argv:
+        test_once()
+    else:
+        main()
