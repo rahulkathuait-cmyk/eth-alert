@@ -1,0 +1,43 @@
+name: ETH Option Alert
+
+# Alert time 00:00 - 14:00 IST  =  18:30 - 08:30 UTC
+# GitHub ek job ko max 6 ghante chalne deta hai, isliye 3 run lagaye hain
+on:
+  schedule:
+    - cron: "30 18 * * *"   # 00:00 IST
+    - cron: "20 0 * * *"    # 05:50 IST
+    - cron: "10 6 * * *"    # 11:40 IST (14:00 par khud band)
+  workflow_dispatch:         # Actions tab se haath se chalane ke liye
+    inputs:
+      mode:
+        description: "test = ek baar price bhejo, run = poora alert chalao"
+        default: "test"
+        type: choice
+        options: [test, run]
+
+concurrency:
+  group: eth-alert
+  cancel-in-progress: true   # naya run aaye to purana band
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Run
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLOUD_MODE: "1"
+          MAX_RUN_MIN: "350"
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "test" ]; then
+            python eth_option_alert.py --test
+          else
+            python eth_option_alert.py
+          fi
